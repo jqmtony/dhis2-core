@@ -30,8 +30,14 @@ package org.hisp.dhis.webapi.controller;
 
 import com.google.common.collect.Lists;
 import org.hisp.dhis.common.Grid;
+import org.hisp.dhis.common.Pager;
+import org.hisp.dhis.common.PagerUtils;
 import org.hisp.dhis.dxf2.webmessage.WebMessageException;
 import org.hisp.dhis.dxf2.webmessage.WebMessageUtils;
+import org.hisp.dhis.node.NodeUtils;
+import org.hisp.dhis.node.types.CollectionNode;
+import org.hisp.dhis.node.types.RootNode;
+import org.hisp.dhis.node.types.SimpleNode;
 import org.hisp.dhis.schema.descriptors.SqlViewSchemaDescriptor;
 import org.hisp.dhis.sqlview.SqlView;
 import org.hisp.dhis.sqlview.SqlViewService;
@@ -71,9 +77,15 @@ public class SqlViewController
     // -------------------------------------------------------------------------
 
     @RequestMapping( value = "/{uid}/data", method = RequestMethod.GET, produces = ContextUtils.CONTENT_TYPE_JSON )
-    public @ResponseBody Grid getViewJson( @PathVariable( "uid" ) String uid,
-        @RequestParam( required = false ) Set<String> criteria, @RequestParam( required = false ) Set<String> var,
-        HttpServletResponse response ) throws WebMessageException
+    public @ResponseBody RootNode getViewJson(
+            @PathVariable( "uid" ) String uid,
+            @RequestParam( required = false ) Set<String> criteria,
+            @RequestParam( required = false ) Set<String> var,
+            @RequestParam( required = false ) Boolean skipPaging,
+            @RequestParam( required = false ) Boolean paging,
+            @RequestParam( required = false, defaultValue = "50" ) int pageSize,
+            @RequestParam( required = false, defaultValue = "1" ) int page,
+            HttpServletResponse response ) throws WebMessageException
     {
         SqlView sqlView = sqlViewService.getSqlViewByUid( uid );
 
@@ -87,9 +99,16 @@ public class SqlViewController
 
         Grid grid = sqlViewService.getSqlViewGrid( sqlView, SqlView.getCriteria( criteria ), SqlView.getCriteria( var ), filters, fields );
 
+        Pager pager = new Pager(page, grid.getHeight(), pageSize);
+        grid.limitGrid(pager.getPage() * pager.getPageSize() - pager.getPageSize(), pager.getPage() * pager.getPageSize());
+
+        RootNode rootNode = NodeUtils.createRootNode("test");
+        rootNode.addChild( new SimpleNode( "grid", grid ) );
+        rootNode.addChild( NodeUtils.createPager(pager) );
+
         contextUtils.configureResponse( response, ContextUtils.CONTENT_TYPE_JSON, sqlView.getCacheStrategy() );
 
-        return grid;
+        return rootNode;
     }
 
     @RequestMapping( value = "/{uid}/data.xml", method = RequestMethod.GET )
