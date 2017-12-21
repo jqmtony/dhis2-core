@@ -30,6 +30,8 @@ package org.hisp.dhis.webapi.controller.event;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import com.google.common.io.ByteSource;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.hisp.dhis.common.DhisApiVersion;
@@ -53,20 +55,33 @@ import org.hisp.dhis.dxf2.webmessage.WebMessageUtils;
 import org.hisp.dhis.event.EventStatus;
 import org.hisp.dhis.fieldfilter.FieldFilterParams;
 import org.hisp.dhis.fieldfilter.FieldFilterService;
+import org.hisp.dhis.fileresource.FileResource;
+import org.hisp.dhis.fileresource.FileResourceDomain;
+import org.hisp.dhis.fileresource.FileResourceService;
+import org.hisp.dhis.fileresource.FileResourceStorageStatus;
 import org.hisp.dhis.importexport.ImportStrategy;
 import org.hisp.dhis.node.NodeUtils;
 import org.hisp.dhis.node.types.CollectionNode;
 import org.hisp.dhis.node.types.RootNode;
+import org.hisp.dhis.program.Program;
+import org.hisp.dhis.program.ProgramService;
 import org.hisp.dhis.program.ProgramStatus;
 import org.hisp.dhis.schema.descriptors.TrackedEntityInstanceSchemaDescriptor;
+import org.hisp.dhis.security.acl.AclService;
 import org.hisp.dhis.system.grid.GridUtils;
+import org.hisp.dhis.trackedentity.TrackedEntityAttribute;
 import org.hisp.dhis.trackedentity.TrackedEntityInstanceQueryParams;
+import org.hisp.dhis.trackedentityattributevalue.TrackedEntityAttributeValue;
+import org.hisp.dhis.user.CurrentUserService;
+import org.hisp.dhis.user.User;
 import org.hisp.dhis.webapi.controller.exception.NotFoundException;
 import org.hisp.dhis.webapi.mvc.annotation.ApiVersion;
 import org.hisp.dhis.webapi.service.ContextService;
 import org.hisp.dhis.webapi.service.WebMessageService;
 import org.hisp.dhis.webapi.utils.ContextUtils;
+import org.omg.CosNaming.NamingContextPackage.NotFound;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -83,6 +98,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
@@ -121,6 +137,18 @@ public class TrackedEntityInstanceController
 
     @Autowired
     private WebMessageService webMessageService;
+
+    @Autowired
+    private ProgramService programService;
+
+    @Autowired
+    private AclService aclService;
+
+    @Autowired
+    private CurrentUserService currentUserService;
+
+    @Autowired
+    private FileResourceService fileResourceService;
 
     // -------------------------------------------------------------------------
     // READ
@@ -234,6 +262,124 @@ public class TrackedEntityInstanceController
         }
 
         return params;
+    }
+
+    @RequestMapping( value = "/{teiId}/{programId}/{attributeId}/data", method = RequestMethod.GET )
+    public void getFileContent(
+            @PathVariable( "teiId" ) String teiId,
+            @PathVariable( "programId" ) String programId,
+            @PathVariable( "attributeId" ) String attributeId,
+            HttpServletResponse response,
+            HttpServletRequest request )
+            throws WebMessageException, NotFoundException
+    {
+        Program program = programService.getProgram( programId );
+        User user = currentUserService.getCurrentUser();
+
+        org.hisp.dhis.trackedentity.TrackedEntityInstance trackedEntityInstance = instanceService.getTrackedEntityInstance( teiId );
+        TrackedEntityAttributeValue value = trackedEntityInstance.getTrackedEntityAttributeValues().stream().
+                filter( val -> val.getAttribute().getUid() == attributeId )
+                .collect( Collectors.toList() )
+                .get(0);
+
+        Boolean connected = trackedEntityInstance.getProgramInstances().stream().
+                map( progInst -> progInst.getProgram().getUid() ).
+                collect( Collectors.toList() ).
+                contains( programId );
+
+
+        if ( program == null || !connected )
+        {
+            throw new WebMessageException( WebMessageUtils.notFound( "Program not found for ID " + programId ) );
+        }
+
+        if ( !aclService.canRead( user, program ) )
+        {
+            throw new WebMessageException( WebMessageUtils.unathorized( "You're not authorized to access this program ") );
+        }
+
+        if ( value == null )
+        {
+            throw new WebMessageException( WebMessageUtils.notFound( "Value not found for ID " + attributeId ) );
+        }
+
+        if ( !value.getAttribute().getValueType().isFile() )
+        {
+            throw new WebMessageException( WebMessageUtils.conflict( "Attribute must be of type file" ) );
+        }
+
+        // ---------------------------------------------------------------------
+        // Get file resource
+        // ---------------------------------------------------------------------
+
+        FileResource fileResource = fileResourceService.getFileResource( value.getValue() );
+
+        if ( fileResource == null || fileResource.getDomain() != FileResourceDomain.DATA_VALUE )
+        {
+            throw new WebMessageException( WebMessageUtils.notFound( "A data value file resource with id " + value.getValue() + " does not exist." ) );
+        }
+
+        if ( fileResource.getStorageStatus() != FileResourceStorageStatus.STORED )
+        {
+            // -----------------------------------------------------------------
+            // The FileResource exists and is tied to DataValue, however the
+            // underlying file content still not stored to external file store
+            // -----------------------------------------------------------------
+
+            throw new WebMessageException( WebMessageUtils.conflict( "The content is being processed and is not available yet. Try again later.",
+                    "The content requested is in transit to the file store and will be available at a later time." ) );
+        }
+
+        ByteSource content = fileResourceService.getFileResourceContent( fileResource );
+
+        if ( content == null )
+        {
+            throw new WebMessageException( WebMessageUtils.notFound( "The referenced file could not be found" ) );
+        }
+
+        // ---------------------------------------------------------------------
+        // Attempt to build signed URL request for content and redirect
+        // ---------------------------------------------------------------------
+
+        URI signedGetUri = fileResourceService.getSignedGetFileResourceContentUri( value.getValue() );
+
+        if ( signedGetUri != null )
+        {
+            response.setStatus( HttpServletResponse.SC_TEMPORARY_REDIRECT );
+            response.setHeader( HttpHeaders.LOCATION, signedGetUri.toASCIIString() );
+
+            return;
+        }
+
+        // ---------------------------------------------------------------------
+        // Build response and return
+        // ---------------------------------------------------------------------
+
+        response.setContentType( fileResource.getContentType() );
+        response.setContentLength( new Long( fileResource.getContentLength() ).intValue() );
+        response.setHeader( HttpHeaders.CONTENT_DISPOSITION, "filename=" + fileResource.getName() );
+
+        // ---------------------------------------------------------------------
+        // Request signing is not available, stream content back to client
+        // ---------------------------------------------------------------------
+
+        InputStream inputStream = null;
+
+        try
+        {
+            inputStream = content.openStream();
+            IOUtils.copy( inputStream, response.getOutputStream() );
+        }
+        catch ( IOException e )
+        {
+            throw new WebMessageException( WebMessageUtils.error( "Failed fetching the file from storage",
+                    "There was an exception when trying to fetch the file from the storage backend. " +
+                            "Depending on the provider the root cause could be network or file system related." ) );
+        }
+        finally
+        {
+            IOUtils.closeQuietly( inputStream );
+        }
     }
 
     @RequestMapping( value = "/query", method = RequestMethod.GET, produces = { ContextUtils.CONTENT_TYPE_JSON, ContextUtils.CONTENT_TYPE_JAVASCRIPT } )

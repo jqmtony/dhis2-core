@@ -68,7 +68,8 @@ public enum ValueType
     COORDINATE( Point.class, true ),
     ORGANISATION_UNIT( OrganisationUnit.class, false ),
     AGE( Date.class, false ),
-    URL( String.class, false );
+    URL( String.class, false ),
+    IMAGE( String.class, false);
 
     public static final Set<ValueType> INTEGER_TYPES = ImmutableSet.<ValueType>builder().add(
         INTEGER, INTEGER_POSITIVE, INTEGER_NEGATIVE, INTEGER_ZERO_OR_POSITIVE ).build();
@@ -84,6 +85,9 @@ public enum ValueType
 
     public static final Set<ValueType> DATE_TYPES = ImmutableSet.<ValueType>builder().add(
         DATE, DATETIME, AGE ).build();
+
+    public static final Set<ValueType> FILE_TYPES = ImmutableSet.<ValueType>builder().add(
+        FILE_RESOURCE, IMAGE ).build();
 
     private final Class<?> javaClass;
 
@@ -132,7 +136,7 @@ public enum ValueType
 
     public boolean isFile()
     {
-        return this == FILE_RESOURCE;
+        return FILE_TYPES.contains( this );
     }
 
     public boolean isCoordinate()
