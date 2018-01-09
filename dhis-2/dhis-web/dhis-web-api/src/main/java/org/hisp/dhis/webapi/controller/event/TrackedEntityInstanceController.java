@@ -277,15 +277,22 @@ public class TrackedEntityInstanceController
         User user = currentUserService.getCurrentUser();
 
         org.hisp.dhis.trackedentity.TrackedEntityInstance trackedEntityInstance = instanceService.getTrackedEntityInstance( teiId );
-        TrackedEntityAttributeValue value = trackedEntityInstance.getTrackedEntityAttributeValues().stream().
-                filter( val -> val.getAttribute().getUid() == attributeId )
-                .collect( Collectors.toList() )
-                .get(0);
 
-        Boolean connected = trackedEntityInstance.getProgramInstances().stream().
-                map( progInst -> progInst.getProgram().getUid() ).
-                collect( Collectors.toList() ).
-                contains( programId );
+        List <TrackedEntityAttributeValue> attribute = trackedEntityInstance.getTrackedEntityAttributeValues().stream()
+                .filter( val -> val.getAttribute().getUid().equals( attributeId ) )
+                .collect( Collectors.toList() );
+
+        if ( attribute.size() == 0 )
+        {
+            throw new WebMessageException( WebMessageUtils.notFound( "Attribute not found for ID " + attributeId ) );
+        }
+
+        TrackedEntityAttributeValue value = attribute.get( 0 );
+
+        Boolean connected = trackedEntityInstance.getProgramInstances().stream()
+                .map( progInst -> progInst.getProgram().getUid() )
+                .collect( Collectors.toList() )
+                .contains( programId );
 
 
         if ( program == null || !connected )

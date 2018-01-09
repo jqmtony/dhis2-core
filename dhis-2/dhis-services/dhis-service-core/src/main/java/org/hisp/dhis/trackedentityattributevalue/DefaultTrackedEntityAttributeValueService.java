@@ -31,6 +31,8 @@ package org.hisp.dhis.trackedentityattributevalue;
 import org.hisp.dhis.common.AuditType;
 import org.hisp.dhis.common.IllegalQueryException;
 import org.hisp.dhis.external.conf.DhisConfigurationProvider;
+import org.hisp.dhis.fileresource.FileResource;
+import org.hisp.dhis.fileresource.FileResourceService;
 import org.hisp.dhis.trackedentity.TrackedEntityAttribute;
 import org.hisp.dhis.trackedentity.TrackedEntityInstance;
 import org.hisp.dhis.user.CurrentUserService;
@@ -60,6 +62,14 @@ public class DefaultTrackedEntityAttributeValueService
     {
         this.attributeValueStore = attributeValueStore;
     }
+
+    @Autowired
+    private FileResourceService fileResourceService;
+
+    /*public void setFileResourceService( FileResourceService fileResourceService )
+    {
+        this.fileResourceService = fileResourceService;
+    }*/
 
     @Autowired
     private TrackedEntityAttributeValueAuditService trackedEntityAttributeValueAuditService;
@@ -138,6 +148,13 @@ public class DefaultTrackedEntityAttributeValueService
         }
 
         attributeValue.setAutoFields();
+
+        if ( attributeValue.getAttribute().getValueType().isFile() )
+        {
+            FileResource fileResource = fileResourceService.getFileResource( attributeValue.getValue() );
+            fileResource.setAssigned( true );
+            fileResourceService.updateFileResource( fileResource );
+        }
 
         if ( attributeValue.getValue() != null )
         {

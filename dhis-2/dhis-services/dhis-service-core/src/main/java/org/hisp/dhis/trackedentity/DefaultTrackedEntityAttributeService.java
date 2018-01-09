@@ -34,6 +34,8 @@ import org.hisp.dhis.common.OrganisationUnitSelectionMode;
 import org.hisp.dhis.common.QueryItem;
 import org.hisp.dhis.common.QueryOperator;
 import org.hisp.dhis.common.ValueType;
+import org.hisp.dhis.fileresource.FileResource;
+import org.hisp.dhis.fileresource.FileResourceService;
 import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.program.Program;
 import org.hisp.dhis.program.ProgramService;
@@ -267,6 +269,10 @@ public class DefaultTrackedEntityAttributeService
         else if ( ValueType.DATETIME == valueType && !DateUtils.dateTimeIsValid( value ) )
         {
             return "Value '" + errorValue + "' is not a valid datetime for attribute " + trackedEntityAttribute.getUid();
+        }
+        else if ( valueType.isFile() )
+        {
+            //TODO: validation
         }
         else if ( trackedEntityAttribute.hasOptionSet() && !trackedEntityAttribute.isValidOptionValue( value ) )
         {
