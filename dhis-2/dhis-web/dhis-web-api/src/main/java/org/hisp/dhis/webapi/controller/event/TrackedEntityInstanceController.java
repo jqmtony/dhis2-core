@@ -34,12 +34,7 @@ import com.google.common.io.ByteSource;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.hisp.dhis.common.DhisApiVersion;
-import org.hisp.dhis.common.DxfNamespaces;
-import org.hisp.dhis.common.Grid;
-import org.hisp.dhis.common.OrganisationUnitSelectionMode;
-import org.hisp.dhis.common.Pager;
-import org.hisp.dhis.common.PagerUtils;
+import org.hisp.dhis.common.*;
 import org.hisp.dhis.common.cache.CacheStrategy;
 import org.hisp.dhis.commons.util.StreamUtils;
 import org.hisp.dhis.commons.util.TextUtils;
@@ -94,8 +89,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 
+import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -264,11 +262,13 @@ public class TrackedEntityInstanceController
         return params;
     }
 
-    @RequestMapping( value = "/{teiId}/{programId}/{attributeId}/data", method = RequestMethod.GET )
-    public void getFileContent(
+    @RequestMapping( value = "/{teiId}/{programId}/{attributeId}/image", method = RequestMethod.GET )
+    public void getAttributeImage(
             @PathVariable( "teiId" ) String teiId,
             @PathVariable( "programId" ) String programId,
             @PathVariable( "attributeId" ) String attributeId,
+            @RequestParam( required = false ) Integer width,
+            @RequestParam( required = false ) Integer height,
             HttpServletResponse response,
             HttpServletRequest request )
             throws WebMessageException, NotFoundException
@@ -310,9 +310,9 @@ public class TrackedEntityInstanceController
             throw new WebMessageException( WebMessageUtils.notFound( "Value not found for ID " + attributeId ) );
         }
 
-        if ( !value.getAttribute().getValueType().isFile() )
+        if ( value.getAttribute().getValueType() != ValueType.IMAGE )
         {
-            throw new WebMessageException( WebMessageUtils.conflict( "Attribute must be of type file" ) );
+            throw new WebMessageException( WebMessageUtils.conflict( "Attribute must be of type image" ) );
         }
 
         // ---------------------------------------------------------------------
@@ -345,20 +345,6 @@ public class TrackedEntityInstanceController
         }
 
         // ---------------------------------------------------------------------
-        // Attempt to build signed URL request for content and redirect
-        // ---------------------------------------------------------------------
-
-        URI signedGetUri = fileResourceService.getSignedGetFileResourceContentUri( value.getValue() );
-
-        if ( signedGetUri != null )
-        {
-            response.setStatus( HttpServletResponse.SC_TEMPORARY_REDIRECT );
-            response.setHeader( HttpHeaders.LOCATION, signedGetUri.toASCIIString() );
-
-            return;
-        }
-
-        // ---------------------------------------------------------------------
         // Build response and return
         // ---------------------------------------------------------------------
 
@@ -366,16 +352,20 @@ public class TrackedEntityInstanceController
         response.setContentLength( new Long( fileResource.getContentLength() ).intValue() );
         response.setHeader( HttpHeaders.CONTENT_DISPOSITION, "filename=" + fileResource.getName() );
 
-        // ---------------------------------------------------------------------
-        // Request signing is not available, stream content back to client
-        // ---------------------------------------------------------------------
-
         InputStream inputStream = null;
 
         try
         {
             inputStream = content.openStream();
-            IOUtils.copy( inputStream, response.getOutputStream() );
+            BufferedImage img = ImageIO.read( inputStream );
+            height = height == null ? img.getHeight() : height;
+            width = width == null ? img.getWidth() : width;
+            BufferedImage resizedImg = new BufferedImage(width, height, BufferedImage.TYPE_3BYTE_BGR);
+            Graphics2D canvas = resizedImg.createGraphics();
+            canvas.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            canvas.drawImage(img, 0, 0, width, height, null);
+            canvas.dispose();
+            ImageIO.write( resizedImg, fileResource.getFormat(), response.getOutputStream() );
         }
         catch ( IOException e )
         {

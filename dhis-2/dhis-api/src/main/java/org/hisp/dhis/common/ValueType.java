@@ -34,6 +34,7 @@ import org.hisp.dhis.organisationunit.OrganisationUnit;
 import org.hisp.dhis.trackedentity.TrackedEntityInstance;
 import org.opengis.geometry.primitive.Point;
 
+import javax.imageio.ImageIO;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Date;
@@ -88,6 +89,9 @@ public enum ValueType
 
     public static final Set<ValueType> FILE_TYPES = ImmutableSet.<ValueType>builder().add(
         FILE_RESOURCE, IMAGE ).build();
+
+    public static final Set<String> VALID_IMAGE_FORMATS = ImmutableSet.<String>builder().add(
+            ImageIO.getReaderFormatNames() ).build();
 
     private final Class<?> javaClass;
 

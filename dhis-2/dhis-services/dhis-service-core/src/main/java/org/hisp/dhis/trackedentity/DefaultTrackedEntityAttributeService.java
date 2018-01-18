@@ -86,6 +86,9 @@ public class DefaultTrackedEntityAttributeService
     }
 
     @Autowired
+    private FileResourceService fileResourceService;
+
+    @Autowired
     private UserService userService;
 
     @Autowired
@@ -270,9 +273,9 @@ public class DefaultTrackedEntityAttributeService
         {
             return "Value '" + errorValue + "' is not a valid datetime for attribute " + trackedEntityAttribute.getUid();
         }
-        else if ( valueType.isFile() )
+        else if ( ValueType.IMAGE == valueType )
         {
-            //TODO: validation
+            return validateImage( value );
         }
         else if ( trackedEntityAttribute.hasOptionSet() && !trackedEntityAttribute.isValidOptionValue( value ) )
         {
@@ -324,5 +327,26 @@ public class DefaultTrackedEntityAttributeService
         }
 
         return new ProgramTrackedEntityAttribute( program, attribute );
+    }
+
+    private String validateImage( String uid )
+    {
+        FileResource fileResource = fileResourceService.getFileResource( uid );
+
+        if ( fileResource == null )
+        {
+            return "Value '" + uid + "' is not the uid of a file";
+        }
+        else if ( !ValueType.VALID_IMAGE_FORMATS.contains( fileResource.getFormat() ) )
+        {
+            return "File resource with uid '" + uid + "' is not a valid image";
+        }
+
+        if ( fileResource.isAssigned() )
+        {
+            return "Image with uid '" + uid + "' already assigned";
+        }
+
+        return null;
     }
 }
